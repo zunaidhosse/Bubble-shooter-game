@@ -6,21 +6,655 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bubble Shooter Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Add Babel Standalone for in-browser transpilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
   }
 }
 </script>
 </head>
   <body class="bg-gray-900">
     <div id="root"></div>
-    <!-- Change script type to "text/babel" to let Babel transpile it -->
-    <script type="text/babel" data-type="module" src="./index.tsx"></script>
+    <script type="text/babel" data-type="module">
+// --- Start of Bundled Application Code ---
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
+const { useState, useEffect, useCallback, useRef } = React;
+
+// --- From types.ts ---
+var GameState;
+(function (GameState) {
+    GameState[GameState["READY"] = 0] = "READY";
+    GameState[GameState["PLAYING"] = 1] = "PLAYING";
+    GameState[GameState["GAME_OVER"] = 2] = "GAME_OVER";
+})(GameState || (GameState = {}));
+
+// --- From constants.ts ---
+const BOARD_WIDTH = 10;
+const BUBBLE_COLORS = ['red', 'green', 'blue', 'yellow', 'purple', 'orange'];
+const COLOR_MAP = {
+  red: '#ef4444',
+  green: '#22c55e',
+  blue: '#3b82f6',
+  yellow: '#eab308',
+  purple: '#a855f7',
+  orange: '#f97316',
+};
+const SHOTS_BEFORE_NEW_ROW = 5;
+
+// --- From hooks/useGameLogic.ts ---
+const useGameLogic = (width, height) => {
+  const bubbleRadius = width / (BOARD_WIDTH * 2 + 1.5);
+  const projectileSpeed = height / 45;
+  const verticalSpacing = bubbleRadius * 1.75;
+  const [gameState, setGameState] = useState(GameState.READY);
+  const [bubbles, setBubbles] = useState([]);
+  const [shooter, setShooter] = useState({
+    currentBubble: 'red',
+    nextBubble: 'blue',
+    angle: -90,
+  });
+  const [projectile, setProjectile] = useState(null);
+  const [score, setScore] = useState(0);
+  const [shotsFired, setShotsFired] = useState(0);
+  const [aimLine, setAimLine] = useState({ x1: 0, y1: 0, x2: 0, y2: 0 });
+  const animationFrameId = useRef();
+  const bubblesRef = useRef(bubbles);
+  useEffect(() => {
+    bubblesRef.current = bubbles;
+  }, [bubbles]);
+
+  const getBubblePixelPos = useCallback((row, col) => {
+    const x = bubbleRadius + col * bubbleRadius * 2 + (row % 2) * bubbleRadius;
+    const y = bubbleRadius + row * verticalSpacing;
+    return { x, y };
+  }, [bubbleRadius, verticalSpacing]);
+
+  const getNeighbors = useCallback((row, col, bubbleList) => {
+    const isEvenRow = row % 2 === 0;
+    const neighborCoords = isEvenRow 
+      ? [
+          [row, col - 1], [row, col + 1],
+          [row - 1, col], [row - 1, col -1],
+          [row + 1, col], [row + 1, col -1],
+        ] 
+      : [
+          [row, col - 1], [row, col + 1],
+          [row - 1, col], [row - 1, col + 1],
+          [row + 1, col], [row + 1, col + 1],
+        ];
+    return neighborCoords.map(([r, c]) => 
+        bubbleList.find(b => b.row === r && b.col === c)
+    ).filter((b) => b !== undefined);
+  }, []);
+
+  const findConnectedBubbles = useCallback((bubbleList) => {
+    const connected = new Set();
+    const q = bubbleList.filter(b => b.row === 0);
+    q.forEach(b => connected.add(b.id));
+
+    while (q.length > 0) {
+        const current = q.shift();
+        getNeighbors(current.row, current.col, bubbleList).forEach(neighbor => {
+            if (!connected.has(neighbor.id)) {
+                connected.add(neighbor.id);
+                q.push(neighbor);
+            }
+        });
+    }
+    return bubbleList.filter(b => connected.has(b.id));
+  }, [getNeighbors]);
+
+  const getRandomColor = useCallback(() => {
+    const availableColors = Array.from(new Set(bubblesRef.current.map(b => b.color)));
+    if (availableColors.length === 0) {
+        return BUBBLE_COLORS[Math.floor(Math.random() * BUBBLE_COLORS.length)];
+    }
+    return availableColors[Math.floor(Math.random() * availableColors.length)];
+  }, []);
+  
+  const addNewRow = useCallback(() => {
+    setBubbles(prev => {
+        const newBubbles = prev.map(b => ({...b, row: b.row + 1, id: b.id}));
+        const cols = BOARD_WIDTH;
+        for (let col = 0; col < cols; col++) {
+            newBubbles.push({
+                id: Date.now() + col,
+                color: BUBBLE_COLORS[Math.floor(Math.random() * BUBBLE_COLORS.length)],
+                row: 0,
+                col,
+            });
+        }
+        if (newBubbles.some(b => getBubblePixelPos(b.row, b.col).y >= height - bubbleRadius * 3)) {
+            setGameState(GameState.GAME_OVER);
+        }
+        return newBubbles;
+    })
+  }, [getBubblePixelPos, height, bubbleRadius]);
+
+  const processNewBubble = useCallback((newBubble) => {
+    let bubblesAfterSnap = [...bubblesRef.current, newBubble];
+    
+    const q = [newBubble];
+    const visited = new Set([newBubble.id]);
+    const matched = [newBubble];
+    
+    while(q.length > 0) {
+        const current = q.shift();
+        getNeighbors(current.row, current.col, bubblesAfterSnap).forEach(neighbor => {
+            if (neighbor.color === newBubble.color && !visited.has(neighbor.id)) {
+                visited.add(neighbor.id);
+                q.push(neighbor);
+                matched.push(neighbor);
+            }
+        })
+    }
+    
+    let finalBubbles = bubblesAfterSnap;
+    if (matched.length >= 3) {
+        const matchedIds = new Set(matched.map(b => b.id));
+        let bubblesAfterPop = bubblesAfterSnap.filter(b => !matchedIds.has(b.id));
+        
+        const connectedToTop = findConnectedBubbles(bubblesAfterPop);
+        const connectedIds = new Set(connectedToTop.map(b => b.id));
+        const floatingBubbles = bubblesAfterPop.filter(b => !connectedIds.has(b.id));
+
+        finalBubbles = bubblesAfterPop.filter(b => connectedIds.has(b.id));
+        setScore(s => s + matched.length * 10 + floatingBubbles.length * 20);
+    }
+    
+    if (finalBubbles.some(b => getBubblePixelPos(b.row, b.col).y >= height - bubbleRadius * 3)) {
+        setGameState(GameState.GAME_OVER);
+    }
+
+    setBubbles(finalBubbles);
+
+    setShotsFired(s => {
+        const newShots = s + 1;
+        if (newShots >= SHOTS_BEFORE_NEW_ROW) {
+            addNewRow();
+            return 0;
+        }
+        return newShots;
+    });
+
+    setShooter(prev => ({
+        ...prev,
+        currentBubble: prev.nextBubble,
+        nextBubble: getRandomColor()
+    }));
+  }, [getRandomColor, findConnectedBubbles, getNeighbors, addNewRow, getBubblePixelPos, height, bubbleRadius]);
+
+  const stopGameLoop = useCallback(() => {
+    if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+    }
+  }, []);
+  
+  const snapProjectile = useCallback((proj) => {
+    stopGameLoop();
+    setProjectile(null);
+
+    let closestRow = -1;
+    let closestCol = -1;
+    let minDistance = Infinity;
+
+    const maxRow = Math.max(0, Math.floor(proj.y / verticalSpacing) + 2);
+
+    for (let row = 0; row < maxRow; row++) {
+        const cols = row % 2 === 0 ? BOARD_WIDTH : BOARD_WIDTH -1;
+        for (let col = 0; col < cols; col++) {
+            if (bubblesRef.current.some(b => b.row === row && b.col === col)) continue;
+            
+            const { x: bx, y: by } = getBubblePixelPos(row, col);
+            const dist = Math.sqrt(Math.pow(proj.x - bx, 2) + Math.pow(proj.y - by, 2));
+
+            if(dist < bubbleRadius * 2 && dist < minDistance) {
+                minDistance = dist;
+                closestRow = row;
+                closestCol = col;
+            }
+        }
+    }
+
+    if (closestRow === -1 || closestCol === -1) {
+        closestRow = Math.max(0, Math.round((proj.y - bubbleRadius) / verticalSpacing));
+        closestCol = Math.round((proj.x - bubbleRadius - (closestRow % 2) * bubbleRadius) / (bubbleRadius * 2));
+    }
+    
+    const maxCols = closestRow % 2 === 0 ? BOARD_WIDTH : BOARD_WIDTH - 1;
+    closestCol = Math.max(0, Math.min(closestCol, maxCols < 0 ? 0 : maxCols - 1));
+
+    const newBubble = {
+        id: Date.now(),
+        color: proj.color,
+        row: closestRow,
+        col: closestCol
+    };
+    
+    processNewBubble(newBubble);
+  }, [stopGameLoop, verticalSpacing, getBubblePixelPos, bubbleRadius, processNewBubble]);
+
+  const gameLoop = useCallback(() => {
+    setProjectile((prev) => {
+      if (!prev) return null;
+
+      let { x, y, vx, vy, color } = prev;
+      x += vx;
+      y += vy;
+
+      if (x - bubbleRadius < 0 || x + bubbleRadius > width) {
+        vx = -vx;
+      }
+      if (y - bubbleRadius < 0) {
+        y = bubbleRadius;
+        snapProjectile({ ...prev, x, y, vx, vy });
+        return null;
+      }
+      
+      for (const bubble of bubblesRef.current) {
+        const { x: bx, y: by } = getBubblePixelPos(bubble.row, bubble.col);
+        const dx = x - bx;
+        const dy = y - by;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bubbleRadius * 2) {
+          snapProjectile({ ...prev, x, y, vx, vy });
+          return null;
+        }
+      }
+
+      return { x, y, vx, vy, color };
+    });
+    animationFrameId.current = requestAnimationFrame(gameLoop);
+  }, [width, bubbleRadius, getBubblePixelPos, snapProjectile]);
+
+  const generateInitialBubbles = useCallback(() => {
+    let newBubbles = [];
+    let idCounter = 0;
+    for (let row = 0; row < 5; row++) {
+      const cols = row % 2 === 0 ? BOARD_WIDTH : BOARD_WIDTH -1;
+      for (let col = 0; col < cols; col++) {
+        newBubbles.push({
+          id: idCounter++,
+          color: BUBBLE_COLORS[Math.floor(Math.random() * BUBBLE_COLORS.length)],
+          row,
+          col,
+        });
+      }
+    }
+    setBubbles(newBubbles);
+    setShooter({
+        currentBubble: getRandomColor(),
+        nextBubble: getRandomColor(),
+        angle: -90,
+    });
+  }, [getRandomColor]);
+
+  const startGame = useCallback(() => {
+    generateInitialBubbles();
+    setScore(0);
+    setShotsFired(0);
+    setProjectile(null);
+    setGameState(GameState.PLAYING);
+  }, [generateInitialBubbles]);
+
+  useEffect(() => {
+    if (gameState === GameState.PLAYING && projectile) {
+      animationFrameId.current = requestAnimationFrame(gameLoop);
+    }
+    return () => stopGameLoop();
+  }, [gameState, projectile, gameLoop, stopGameLoop]);
+
+  const handleMouseMove = useCallback((e) => {
+    if (gameState !== GameState.PLAYING) return;
+    
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    const shooterX = width / 2;
+    const shooterY = height - bubbleRadius * 2.5;
+
+    const dx = x - shooterX;
+    const dy = y - shooterY;
+    let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+    if (angle > -10) angle = -10;
+    if (angle < -170) angle = -170;
+
+    setShooter(prev => ({ ...prev, angle }));
+
+    const rad = angle * Math.PI / 180;
+    setAimLine({
+        x1: shooterX,
+        y1: shooterY,
+        x2: shooterX + Math.cos(rad) * height,
+        y2: shooterY + Math.sin(rad) * height,
+    })
+  }, [gameState, width, height, bubbleRadius]);
+
+  const handleClick = useCallback((e) => {
+    if (gameState !== GameState.PLAYING || projectile) return;
+
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    const shooterX = width / 2;
+    const shooterY = height - bubbleRadius * 2.5;
+
+    const dx = x - shooterX;
+    const dy = y - shooterY;
+
+    if (dy >= 0) return;
+    
+    let angleDegrees = Math.atan2(dy, dx) * 180 / Math.PI;
+
+    if (angleDegrees > -10) angleDegrees = -10;
+    if (angleDegrees < -170) angleDegrees = -170;
+
+    const angleRad = angleDegrees * Math.PI / 180;
+
+    setProjectile({
+      x: shooterX,
+      y: shooterY,
+      vx: Math.cos(angleRad) * projectileSpeed,
+      vy: Math.sin(angleRad) * projectileSpeed,
+      color: shooter.currentBubble,
+    });
+  }, [gameState, projectile, width, height, bubbleRadius, projectileSpeed, shooter.currentBubble]);
+
+  return {
+    gameState,
+    score,
+    startGame,
+    bubbles,
+    shooter,
+    projectile,
+    aimLine,
+    handleMouseMove,
+    handleClick,
+    bubbleRadius,
+    getBubblePixelPos,
+  };
+};
+
+// --- From components/Bubble.tsx ---
+const Bubble = ({ bubble, x, y, radius }) => {
+  const color = COLOR_MAP[bubble.color];
+
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <defs>
+        <radialGradient id={`grad-${bubble.color}`} cx="30%" cy="30%" r="70%">
+          <stop offset="0%" style={{ stopColor: 'rgba(255,255,255,0.4)' }} />
+          <stop offset="100%" style={{ stopColor: color }} />
+        </radialGradient>
+      </defs>
+      <circle
+        r={radius}
+        fill={`url(#grad-${bubble.color})`}
+        stroke={color}
+        strokeWidth="1"
+      />
+    </g>
+  );
+};
+
+// --- From components/Scoreboard.tsx ---
+const Scoreboard = ({ score }) => {
+  return (
+    <div className="flex justify-center items-center p-3 bg-slate-900/50 border-b border-slate-700">
+      <div className="text-center">
+        <span className="text-sm text-gray-400">Score</span>
+        <p className="text-2xl font-bold text-cyan-300">{score}</p>
+      </div>
+    </div>
+  );
+};
+
+// --- From components/GameOverModal.tsx ---
+const GameOverModal = ({ score, onRestart }) => {
+  return (
+    <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center z-10">
+      <div className="bg-slate-800 p-8 rounded-lg shadow-2xl text-center border border-slate-600">
+        <h2 className="text-4xl font-bold text-red-500 mb-2">Game Over</h2>
+        <p className="text-xl text-gray-300 mb-4">Your final score is:</p>
+        <p className="text-5xl font-bold text-cyan-300 mb-8">{score}</p>
+        <button
+          onClick={onRestart}
+          className="px-8 py-3 bg-cyan-500 text-gray-900 font-bold rounded-lg hover:bg-cyan-400 transition-colors duration-300 text-xl shadow-lg hover:shadow-cyan-500/50"
+        >
+          Play Again
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- From components/StartScreen.tsx ---
+const StartScreen = ({ onStart }) => {
+  return (
+    <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center z-10 p-4">
+      <div className="text-center">
+        <h2 className="text-5xl font-bold text-cyan-300 mb-4 animate-pulse">Welcome!</h2>
+        <p className="text-lg text-gray-300 mb-8">Match 3 or more bubbles of the same color to pop them.</p>
+        <button
+          onClick={onStart}
+          className="px-10 py-4 bg-green-500 text-white font-bold rounded-lg hover:bg-green-400 transition-colors duration-300 text-2xl shadow-lg hover:shadow-green-500/50"
+        >
+          Start Game
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- From components/GameBoard.tsx ---
+const GameBoard = ({
+  width,
+  height,
+  bubbles,
+  shooter,
+  projectile,
+  aimLine,
+  handleMouseMove,
+  handleClick,
+  score,
+  gameState,
+  bubbleRadius,
+  getBubblePixelPos,
+}) => {
+  const [isShooting, setIsShooting] = useState(false);
+
+  useEffect(() => {
+    if (projectile) {
+      setIsShooting(true);
+      const timer = setTimeout(() => setIsShooting(false), 150);
+      return () => clearTimeout(timer);
+    }
+  }, [projectile]);
+
+  const shooterX = width / 2;
+  const shooterY = height - bubbleRadius * 2.5;
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      <Scoreboard score={score} />
+      <div className="flex-grow relative">
+        <svg
+          width={width}
+          height={height}
+          onMouseMove={gameState === GameState.PLAYING ? handleMouseMove : undefined}
+          onClick={gameState === GameState.PLAYING ? handleClick : undefined}
+          className="w-full h-full cursor-crosshair bg-gradient-to-br from-gray-900 to-slate-800"
+        >
+          <line x1="0" y1="1" x2={width} y2="1" stroke="#475569" strokeWidth="2" />
+          {bubbles.map((bubble) => {
+            const { x, y } = getBubblePixelPos(bubble.row, bubble.col);
+            return <Bubble key={bubble.id} bubble={bubble} x={x} y={y} radius={bubbleRadius} />;
+          })}
+          
+          {projectile && (
+            <circle
+              cx={projectile.x}
+              cy={projectile.y}
+              r={bubbleRadius}
+              fill={COLOR_MAP[projectile.color]}
+            />
+          )}
+
+          {gameState === GameState.PLAYING && (
+            <>
+              <line
+                x1={aimLine.x1}
+                y1={aimLine.y1}
+                x2={aimLine.x2}
+                y2={aimLine.y2}
+                stroke="rgba(255, 255, 255, 0.4)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+              />
+              
+              <text
+                x={shooterX}
+                y={height - bubbleRadius * 0.5}
+                textAnchor="middle"
+                fontSize={bubbleRadius * 4}
+                style={{
+                  filter: 'drop-shadow(3px 5px 2px #00000040)',
+                  transformOrigin: 'center bottom',
+                  transition: 'transform 0.1s ease-out',
+                  transform: isShooting ? 'scale(0.95, 0.9) translateY(2px)' : 'scale(1)',
+                }}
+              >
+                👽
+              </text>
+
+              <g transform={`translate(${shooterX + bubbleRadius * 3.5}, ${height - bubbleRadius * 1.8})`}>
+                <text x="0" y={-bubbleRadius * 1.2} textAnchor="middle" fontSize={bubbleRadius * 0.7} fill="#94a3b8">Next</text>
+                <circle
+                  r={bubbleRadius * 0.7}
+                  fill={COLOR_MAP[shooter.nextBubble]}
+                  stroke="#cbd5e1"
+                  strokeWidth="1"
+                />
+              </g>
+
+              {!projectile && (
+                <circle
+                  cx={shooterX}
+                  cy={shooterY}
+                  r={bubbleRadius}
+                  fill={COLOR_MAP[shooter.currentBubble]}
+                />
+              )}
+            </>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+// --- From App.tsx ---
+const App = () => {
+  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setDimensions({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const {
+    gameState,
+    score,
+    startGame,
+    bubbles,
+    shooter,
+    projectile,
+    aimLine,
+    handleMouseMove,
+    handleClick,
+    bubbleRadius,
+    getBubblePixelPos,
+  } = useGameLogic(dimensions.width, dimensions.height);
+
+  const renderGameState = () => {
+    const gameBoardProps = {
+      width: dimensions.width,
+      height: dimensions.height,
+      bubbles,
+      shooter,
+      projectile,
+      aimLine,
+      score,
+      gameState,
+      bubbleRadius,
+      getBubblePixelPos,
+    };
+
+    switch (gameState) {
+      case GameState.READY:
+        return <StartScreen onStart={startGame} />;
+      case GameState.GAME_OVER:
+        return (
+          <>
+            <GameBoard
+              {...gameBoardProps}
+              handleMouseMove={() => {}}
+              handleClick={() => {}}
+            />
+            <GameOverModal score={score} onRestart={startGame} />
+          </>
+        );
+      case GameState.PLAYING:
+      default:
+        return (
+          <GameBoard
+            {...gameBoardProps}
+            handleMouseMove={handleMouseMove}
+            handleClick={handleClick}
+          />
+        );
+    }
+  };
+
+  return (
+    <div className="w-screen h-screen flex flex-col items-center bg-gradient-to-br from-gray-900 to-slate-800 text-white font-mono overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 z-20 pt-4 text-center bg-black bg-opacity-20 backdrop-blur-sm">
+        <h1 className="text-3xl md:text-4xl font-bold text-cyan-300 tracking-wider" style={{ textShadow: '0 0 10px #22d3ee, 0 0 20px #22d3ee' }}>
+          Bubble Shooter
+        </h1>
+        <p className="text-xs text-gray-400 mb-2">রঙ মিলিয়ে বাবল ফাটান!</p>
+      </div>
+      <div className="relative w-full h-full">
+        {renderGameState()}
+      </div>
+    </div>
+  );
+};
+
+// --- From index.tsx ---
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// --- End of Bundled Application Code ---
+    </script>
   </body>
 </html>
