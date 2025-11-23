@@ -317,7 +317,7 @@ const useGameLogic = (width, height) => {
     const y = e.clientY;
     
     const shooterX = width / 2;
-    const shooterY = height - bubbleRadius * 2.5;
+    const shooterY = height - bubbleRadius * 4;
 
     const dx = x - shooterX;
     const dy = y - shooterY;
@@ -344,7 +344,7 @@ const useGameLogic = (width, height) => {
     const y = e.clientY;
     
     const shooterX = width / 2;
-    const shooterY = height - bubbleRadius * 2.5;
+    const shooterY = height - bubbleRadius * 4;
 
     const dx = x - shooterX;
     const dy = y - shooterY;
@@ -387,7 +387,9 @@ const Bubble = ({ bubble, x, y, radius }) => {
   const color = COLOR_MAP[bubble.color];
 
   return (
-    <g transform={`translate(${x}, ${y})`}>
+    <g
+      transform={`translate(${x}, ${y})`}
+    >
       <defs>
         <radialGradient id={`grad-${bubble.color}`} cx="30%" cy="30%" r="70%">
           <stop offset="0%" style={{ stopColor: 'rgba(255,255,255,0.4)' }} />
@@ -403,6 +405,7 @@ const Bubble = ({ bubble, x, y, radius }) => {
     </g>
   );
 };
+
 
 // --- From components/Scoreboard.tsx ---
 const Scoreboard = ({ score }) => {
@@ -479,7 +482,7 @@ const GameBoard = ({
   }, [projectile]);
 
   const shooterX = width / 2;
-  const shooterY = height - bubbleRadius * 2.5;
+  const shooterY = height - bubbleRadius * 4;
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -521,7 +524,7 @@ const GameBoard = ({
               
               <text
                 x={shooterX}
-                y={height - bubbleRadius * 0.5}
+                y={height - bubbleRadius * 2}
                 textAnchor="middle"
                 fontSize={bubbleRadius * 4}
                 style={{
@@ -534,7 +537,7 @@ const GameBoard = ({
                 👽
               </text>
 
-              <g transform={`translate(${shooterX + bubbleRadius * 3.5}, ${height - bubbleRadius * 1.8})`}>
+              <g transform={`translate(${shooterX + bubbleRadius * 3.5}, ${height - bubbleRadius * 3.3})`}>
                 <text x="0" y={-bubbleRadius * 1.2} textAnchor="middle" fontSize={bubbleRadius * 0.7} fill="#94a3b8">Next</text>
                 <circle
                   r={bubbleRadius * 0.7}
