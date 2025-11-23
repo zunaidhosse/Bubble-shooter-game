@@ -1,0 +1,5 @@
+{
+  "name": "Bubble Shooter Game",
+  "description": "A classic bubble shooter game built with React and Tailwind CSS. Match colors to pop bubbles as they descend. Features include a scoring system, next bubble preview, and an aiming line for a complete and engaging gameplay experience.",
+  "requestFramePermissions": []
+}
